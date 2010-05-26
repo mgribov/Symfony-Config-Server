@@ -1,39 +1,87 @@
 from socket import *
-import thread, getopt, sys, os
+import thread, getopt, sys, os, jsonlib2, yaml
 
 def usage():
     print "usage: \n-s <path>: symfony path\n-p <port>: port to listen on\n-l <ip>: ip to listen on\n-h: help\n-v: verbose"
 
 
-def symfony_get_config(yml_string, app='frontend'):
-    """Read either cached or raw YAML config files"""
-    yml_string.strip(os.linesep)
-    app.strip(os.linesep)
-    stringy = app, yml_string
-    return ''.join(stringy)
+# TODO: for now only supports env-specific (not all:) vars in app.yml only
+def symfony_get_config(yml_string, symfony_path, app='frontend', env='prod'):
+    """Read raw app.yml"""
+
+    # parse our conf path
+    confpath = yml_string.split('_')
+
+    # first member is always app, else its an error
+    if "app" in confpath:
+        confpath.remove('app')
+    else:
+        return "ERROR: Config path must start with app\n"
+
+    # strip any weird chars
+    confpath = [elem.strip() for elem in confpath]
+
+    # TODO: cache this
+    try:
+        config = yaml.load(file(symfony_path + '/apps/' + app + '/config/app.yml', 'r'))
+    except yaml.YAMLError, exc:
+        return "ERROR: Cannot read YAML:" + exc + "\n"
+
+    curr = config[env]
+
+    for elem in confpath:
+        try:
+            # see if we can find this element
+            curr = curr[elem]
+        except (TypeError, KeyError):
+            # if not, lets try to take the rest of the elements, join them with _ and keep trying
+            for elem in confpath:
+                index = confpath.index(elem) + 1
+                elem = elem + '_' + '_'.join(confpath[index:])
+                try:
+                    deep_curr = curr[elem]
+                except (TypeError, KeyError):
+                    continue
+
+            try:
+                curr = deep_curr
+            except NameError:
+                return "ERROR: Config variable not found\n"
+
+                
+    return jsonlib2.write(curr) + "\n"
 
 
-def handler(clientsock,addr):
+def handler(clientsock,addr, symfony):
     """Handle the connections, parse received requests and send results back"""
+
     # default symfony app
     app = 'frontend'
+
+    # default symfony env
+    env = 'prod'
 
     BUFSIZ = 1024
     while 1:
         data = clientsock.recv(BUFSIZ)
         if not data: break 
         data.strip(os.linesep)
+
+        # TODO: should not be startswith()
         if data.startswith('quit'):
             clientsock.close()
         elif data.startswith('app:'):
             app = data.split(':')
             app = app[1]
+        elif data.startswith('env:'):
+            env = data.split(':')
+            env = env[1]
         else:
-            yml_data = symfony_get_config(data, app)
+            yml_data = symfony_get_config(data, symfony, app, env)
             clientsock.sendall(yml_data)
 
 
-def listener(ip='localhost', port='21567'):
+def listener(ip, port, symfony):
     """Spawn listener threads"""
     HOST = ip
     PORT = int(port)
@@ -45,7 +93,7 @@ def listener(ip='localhost', port='21567'):
         print sys.argv[0], 'listening on ', ip, port
         clientsock, addr = serversock.accept()
         print 'connected from:', addr
-        thread.start_new_thread(handler, (clientsock, addr))
+        thread.start_new_thread(handler, (clientsock, addr, symfony))
 
 
 def daemonize():
@@ -104,7 +152,7 @@ def main():
 
     # get options
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hl:p:s:v", ["help", "listen=", "port=", "path=", "symfony"])
+        opts, args = getopt.getopt(sys.argv[1:], "hl:p:s:v", ["help", "listen=", "port=", "path=", "symfony="])
     except getopt.GetoptError, err:
         print str(err) # will print something like "option -a not recognized"
         usage()
@@ -128,7 +176,7 @@ def main():
     retCode = daemonize()
 
     # spawn listening server
-    listener(ip, port)
+    listener(ip, port, symfony)
 
 
 
