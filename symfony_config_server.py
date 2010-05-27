@@ -5,7 +5,7 @@ def usage():
     print "usage: \n-s <path>: symfony path\n-p <port>: port to listen on\n-l <ip>: ip to listen on\n-h: help\n-v: verbose"
 
 
-# TODO: for now only supports env-specific (not all:) vars in app.yml only
+# TODO: for now supports vars in app.yml only
 def symfony_get_config(yml_string, symfony_path, app='frontend', env='prod'):
     """Read raw app.yml"""
 
@@ -32,6 +32,20 @@ def symfony_get_config(yml_string, symfony_path, app='frontend', env='prod'):
     except KeyError:
         return "ERROR: Invalid environment\n"
 
+    try:
+        data = parse_yaml_env(curr, confpath)
+    except NameError:
+        try:
+            data = parse_yaml_env(config['all'], confpath)
+        except NameError:
+            return "ERROR: Config variable not found\n"
+
+    return jsonlib2.write(data) + "\n"
+
+
+def parse_yaml_env(curr, confpath):
+    """Walk through YAML data and pull out vars for specific env"""
+
     for elem in confpath:
         try:
             # see if we can find this element
@@ -49,11 +63,9 @@ def symfony_get_config(yml_string, symfony_path, app='frontend', env='prod'):
             try:
                 curr = deep_curr
             except NameError:
-                return "ERROR: Config variable not found\n"
+                raise NameError('no value')
 
-                
-    return jsonlib2.write(curr) + "\n"
-
+    return curr
 
 def handler(clientsock,addr, symfony):
     """Handle the connections, parse received requests and send results back"""
@@ -70,9 +82,7 @@ def handler(clientsock,addr, symfony):
         if not data: break 
         data = data.strip()
         
-
-        # TODO: should not be startswith()
-        if data.startswith('quit'):
+        if data == 'quit':
             clientsock.close()
         elif data.startswith('app:'):
             app = data.split(':')
