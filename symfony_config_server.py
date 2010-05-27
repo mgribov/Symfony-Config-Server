@@ -25,9 +25,12 @@ def symfony_get_config(yml_string, symfony_path, app='frontend', env='prod'):
     try:
         config = yaml.load(file(symfony_path + '/apps/' + app + '/config/app.yml', 'r'))
     except yaml.YAMLError, exc:
-        return "ERROR: Cannot read YAML:" + exc + "\n"
+        return "ERROR: Cannot read YAML\n"
 
-    curr = config[env]
+    try:
+        curr = config[env]
+    except KeyError:
+        return "ERROR: Invalid environment\n"
 
     for elem in confpath:
         try:
@@ -65,7 +68,8 @@ def handler(clientsock,addr, symfony):
     while 1:
         data = clientsock.recv(BUFSIZ)
         if not data: break 
-        data.strip(os.linesep)
+        data = data.strip()
+        
 
         # TODO: should not be startswith()
         if data.startswith('quit'):
